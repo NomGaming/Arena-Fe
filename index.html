@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOM-Gaming - Client Hours</title>
+  <link rel="icon" href="nomicon.png" type="image/x-icon">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>
+      <a href="../" class="home-link" style="color: inherit; text-decoration: none;">
+        NOM-Gaming - Client Hours
+      </a>
+    </h1>
+      <section id="counters" style="display: flex; justify-content: center; gap: 40px; margin-top: 15px; font-size: 1.2em;">
+        <div>משחקים כרגע: <span id="playingNowCounter">0</span></div>
+        <div>פעילים: <span id="activeCounter">0</span></div>
+        <div>לא פעילים: <span id="inactiveCounter">0</span></div>
+        <div>סה"כ: <span id="totalCounter">0</span></div>
+               <div>: כללי לשלושת הסניפים </div>
+      </section>
+  </header>
+
+<br>
+  <div class="tabs">
+    <a class="tab-link" href="herz">הרצליה</a>
+    <a class="tab-link" href="rosh">ראש העין</a>
+    <a class="tab-link" href="rishon">ראשון לציון</a>
+  </div>
+ 
+
+ 
+
+
+<script>
+const BACKEND_URL = 'https://arena-be.onrender.com' // live backend
+//const BACKEND_URL = 'http://localhost:3000' // test backend
+
+const branches = [
+  { name: "הרצליה", path: "herz" },
+  { name: "ראש העין", path: "rosh" },
+  { name: "ראשון לציון", path: "rishon" }
+];
+
+// Ask password with cache for 1 hour
+async function requirePassword() {
+  const cache = localStorage.getItem("adminAuth");
+  if (cache) {
+    const parsed = JSON.parse(cache);
+    if (Date.now() - parsed.timestamp < 3600 * 1000) {
+      return parsed.password; // Still valid
+    }
+  }
+
+  while (true) {
+    const password = prompt('הכנס סיסמה לצפייה בדף זה:');
+    if (!password) {
+      alert('גישה נדחתה.');
+      window.location.href = "about:blank";
+      return null;
+    }
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/check-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      const result = await res.json();
+      if (result.valid) {
+        localStorage.setItem("adminAuth", JSON.stringify({
+          password,
+          timestamp: Date.now()
+        }));
+        return password;
+      } else {
+        alert('סיסמה שגויה, נסה שוב.');
+      }
+    } catch (err) {
+      alert('שגיאה בבדיקת הסיסמה.');
+      console.error(err);
+      return null;
+    }
+  }
+}
+
+async function fetchAllBranchesAndUpdateCounters() {
+  let allClients = [];
+  try {
+    // Fetch all three in parallel
+    const results = await Promise.all(
+      branches.map(branch =>
+        fetch(`${BACKEND_URL}/clients?branch=${encodeURIComponent(branch.name)}`)
+          .then(res => res.json())
+          .catch(() => [])
+      )
+    );
+    // Flatten results into one array
+    allClients = results.flat();
+  } catch (err) {
+    console.error("Error fetching branches", err);
+  }
+
+  // Now sum up counters
+  let total = allClients.length;
+  let active = 0;
+  let inactive = 0;
+  let playingNow = 0;
+
+  function getRemainingSeconds(client) {
+    if (client.paused || !client.startTimestamp)
+      return Math.max(0, client.totalSeconds - client.elapsedSeconds);
+
+    const start = new Date(client.startTimestamp).getTime();
+    const now = Date.now();
+    const extraElapsed = Math.floor((now - start) / 1000);
+    return Math.max(0, client.totalSeconds - (client.elapsedSeconds + extraElapsed));
+  }
+
+  allClients.forEach(client => {
+    const remaining = getRemainingSeconds(client);
+    if (remaining > 5) active++;
+    else inactive++;
+    if (!client.paused) playingNow++;
+  });
+
+  document.getElementById('totalCounter').textContent = total;
+  document.getElementById('activeCounter').textContent = active;
+  document.getElementById('inactiveCounter').textContent = inactive;
+  document.getElementById('playingNowCounter').textContent = playingNow;
+}
+
+// Main init
+(async () => {
+  fetchAllBranchesAndUpdateCounters();
+  setInterval(fetchAllBranchesAndUpdateCounters, 30000);
+})();
+</script>
+
+
+</body>
+</html>

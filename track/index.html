@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>צפייה במשתמש</title>
+  <link rel="icon" href="../nomicon.png" type="image/x-icon">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f4f6f9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h2 { margin-bottom: 15px; }
+    form, #otpSection {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 10px;
+    }
+    input, select, button {
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background-color: #45a049; }
+    #result {
+      margin-top: 25px;
+      display: none;
+      background: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+      width: 300px;
+      animation: fadeIn 0.4s ease-in-out;
+    }
+    #result h3 { margin-bottom: 10px; }
+    .status-badge {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 20px;
+      color: white;
+      font-weight: bold;
+      margin-top: 8px;
+    }
+    .status-active { background-color: #28a745; }
+    .status-paused { background-color: #dc3545; }
+    .meta { color:#6b7280; font-size:12px; margin-top:6px; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+<h2>שלום, הכנס מספר פלאפון לצפייה במשתמש שלך</h2>
+
+<form id="trackForm">
+  <input type="text" id="phoneInput" placeholder="מספר פלאפון (10 ספרות)" required>
+  <select id="branchSelect">
+    <option value="ראשון לציון">ראשון לציון</option>
+    <option value="הרצליה">הרצליה</option>
+    <option value="ראש העין">ראש העין</option>
+  </select>
+  <button type="submit">חפש</button>
+</form>
+
+<div id="otpSection" style="display:none;">
+  <input type="text" id="otpInput" placeholder="קוד אימות (4 ספרות)" required>
+  <button id="verifyOtpBtn">אמת קוד</button>
+</div>
+
+<div id="result"></div>
+
+<script>
+// ===== config =====
+const BACKEND_URL = 'https://arena-be.onrender.com'; // live
+// const BACKEND_URL = 'http://localhost:3000'; // local
+const CACHE_KEY = 'trackedClientsCache';
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24h data cache
+const VERIFY_TTL = 24 * 60 * 60 * 1000; // 24h OTP verification cache per phone
+const SYNC_INTERVAL_MS = 7000;     // poll backend every 7s
+
+// ===== state =====
+let trackedClients = [];
+let pendingPhone = '';
+let pendingBranch = '';
+let syncTimer = null;
+let verified = false;
+
+// ===== cache helpers =====
+function saveCache(phone, branch, clients) {
+  const data = { phone, branch, clients, timestamp: Date.now() };
+  localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+}
+function loadCache() {
+  const raw = localStorage.getItem(CACHE_KEY);
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw);
+    if (Date.now() - data.timestamp > CACHE_TTL) {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+    return data;
+  } catch { return null; }
+}
+
+// per-phone verification cache
+function setPhoneVerified(phone) {
+  try {
+    const key = `otpVerified:${phone}`;
+    localStorage.setItem(key, String(Date.now() + VERIFY_TTL));
+  } catch {}
+}
+function isPhoneVerified(phone) {
+  try {
+    const key = `otpVerified:${phone}`;
+    const until = Number(localStorage.getItem(key) || 0);
+    return until && until > Date.now();
+  } catch { return false; }
+}
+
+// ===== time helpers =====
+function formatTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+}
+function getRemainingSeconds(client) {
+  if (client.paused || !client.startTimestamp)
+    return Math.max(0, client.totalSeconds - client.elapsedSeconds);
+  const start = new Date(client.startTimestamp).getTime();
+  const now = Date.now();
+  const extraElapsed = Math.floor((now - start) / 1000);
+  return Math.max(0, client.totalSeconds - (client.elapsedSeconds + extraElapsed));
+}
+
+// ===== rendering =====
+function renderClients(lastSyncText = '') {
+  const resultDiv = document.getElementById('result');
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '';
+
+  if (!trackedClients.length) {
+    resultDiv.innerHTML = `<div class="meta">לא נמצאו משתמשים</div>`;
+    return;
+  }
+
+  trackedClients.forEach(client => {
+    const remaining = getRemainingSeconds(client);
+    const isActive = !client.paused;
+    const statusClass = isActive ? 'status-active' : 'status-paused';
+    const statusText = isActive ? 'פעיל' : 'לא פעיל';
+
+    const card = document.createElement('div');
+    card.style.marginBottom = '15px';
+    card.innerHTML = `
+      <h3>${client.name}</h3>
+      <p id="remaining-${client.id}">יתרת זמן: ${formatTime(remaining)}</p>
+      <span id="status-${client.id}" class="status-badge ${statusClass}">${statusText}</span>
+      <div class="meta" id="meta-${client.id}">${lastSyncText ? `עודכן לאחרונה: ${lastSyncText}` : ''}</div>
+      <hr>
+    `;
+    resultDiv.appendChild(card);
+  });
+}
+
+// ===== sync with backend (force fresh) =====
+async function syncFromServer(showError = false) {
+  if (!pendingPhone || !pendingBranch) return;
+  try {
+    const url = `${BACKEND_URL}/clients-by-phone?phone=${encodeURIComponent(pendingPhone)}&branch=${encodeURIComponent(pendingBranch)}&_ts=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
+
+    // Handle 404/empty explicitly — treat as "no clients" instead of keeping stale UI
+    if (!res.ok) {
+      if (res.status === 404) {
+        trackedClients = [];
+        saveCache(pendingPhone, pendingBranch, trackedClients);
+        renderClients(new Date().toLocaleTimeString('he-IL', { hour12:false }));
+        if (showError) alert('לא נמצאו משתמשים עם מספר זה.');
+        return;
+      }
+      if (showError) alert('שגיאה ברענון הנתונים');
+      return;
+    }
+
+    const fresh = await res.json();
+
+    // Normalize paused clients so no local countdown runs if paused
+    fresh.forEach(c => {
+      if (c.paused) c.startTimestamp = null;
+    });
+
+    trackedClients = Array.isArray(fresh) ? fresh : [];
+    saveCache(pendingPhone, pendingBranch, trackedClients);
+    const lastSyncText = new Date().toLocaleTimeString('he-IL', { hour12:false });
+    renderClients(lastSyncText);
+  } catch (err) {
+    console.error('Sync error:', err);
+    if (showError) alert('שגיאה ברענון הנתונים');
+  }
+}
+
+function startSyncLoop() {
+  clearInterval(syncTimer);
+  // immediate sync, then interval
+  syncFromServer(false);
+  syncTimer = setInterval(syncFromServer, SYNC_INTERVAL_MS);
+}
+
+// Also resync when tab becomes visible again
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && verified) {
+    syncFromServer(false);
+  }
+});
+
+// ===== events =====
+document.getElementById('trackForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const phone = document.getElementById('phoneInput').value.trim();
+  const branch = document.getElementById('branchSelect').value;
+
+  if (!/^[0][0-9]{9}$/.test(phone)) {
+    alert('אנא הכנס מספר פלאפון תקין (10 ספרות)');
+    return;
+  }
+
+  pendingPhone = phone;
+  pendingBranch = branch;
+
+  // If this phone is still verified (within TTL), skip OTP completely
+  if (isPhoneVerified(phone)) {
+    verified = true;
+    // show cached instantly if we have any
+    const cached = loadCache();
+    if (cached && cached.phone === phone && cached.branch === branch) {
+      trackedClients = cached.clients || [];
+      renderClients('מטמון דפדפן — מתעדכן…');
+    } else {
+      document.getElementById('result').style.display = 'block';
+      document.getElementById('result').innerHTML = `<div class="meta">טוען נתונים חיים…</div>`;
+    }
+    // jump straight to live sync
+    await syncFromServer(true);
+    startSyncLoop();
+    setTimeout(syncFromServer, 1000);
+    return;
+  }
+
+  // else: require OTP
+  document.getElementById('otpSection').style.display = 'flex';
+  alert('קוד אימות נשלח לוואטסאפ שלך');
+  try {
+    await fetch(`${BACKEND_URL}/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+  } catch (err) {
+    console.error('OTP request error:', err);
+    alert('שגיאה בשליחת קוד האימות');
+  }
+});
+
+document.getElementById('verifyOtpBtn').addEventListener('click', async () => {
+  const code = document.getElementById('otpInput').value.trim();
+  if (!code) {
+    alert('אנא הכנס קוד אימות');
+    return;
+  }
+  try {
+    const res = await fetch(`${BACKEND_URL}/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: pendingPhone, code })
+    });
+    const data = await res.json();
+    if (res.ok && data.verified) {
+      verified = true;
+      setPhoneVerified(pendingPhone);      // cache verification for this phone
+      await syncFromServer(true);          // immediate fetch after verify
+      startSyncLoop();
+      setTimeout(syncFromServer, 1000);    // tiny second pass to beat races
+      document.getElementById('otpSection').style.display = 'none';
+    } else {
+      alert(data.message || 'קוד לא נכון');
+    }
+  } catch (err) {
+    console.error('OTP verify error:', err);
+    alert('שגיאה באימות הקוד');
+  }
+});
+
+// per-second UI tick (keeps countdown smooth between syncs)
+// only runs after OTP verification (or verified-from-cache)
+setInterval(() => {
+  if (!verified) return;
+
+  try {
+    trackedClients.forEach(client => {
+      const el = document.getElementById(`remaining-${client.id}`);
+      const statusEl = document.getElementById(`status-${client.id}`);
+      if (!el || !statusEl) return;
+
+      let rem = getRemainingSeconds(client);
+
+      if (!client.paused) {
+        if (rem <= 0) {
+          rem = 0;
+          // Flip UI badge locally until next backend sync confirms paused state
+          statusEl.textContent = 'לא פעיל';
+          statusEl.classList.remove('status-active');
+          statusEl.classList.add('status-paused');
+        }
+      }
+
+      el.textContent = `יתרת זמן: ${formatTime(rem)}`;
+    });
+  } catch (e) {
+    // Super defensive: never let UI tick crash the page
+    console.warn('Tick error (ignored):', e);
+  }
+}, 1000);
+
+// ===== optional: boot from cache (no phone yet) =====
+const cached = loadCache();
+if (cached) {
+  // Pre-fill UI if you want:
+  document.getElementById('phoneInput').value = cached.phone || '';
+  document.getElementById('branchSelect').value = cached.branch || 'ראשון לציון';
+}
+</script>
+
+</body>
+</html>

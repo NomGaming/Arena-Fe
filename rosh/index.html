@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOM-Gaming - Client Hours</title>
+  <link rel="icon" href="../nomicon.png" type="image/x-icon">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header>
+    <h1>
+      <a href="../" class="home-link" style="color: inherit; text-decoration: none;">
+        NOM-Gaming - Client Hours
+      </a>
+    </h1>
+      <section id="counters" style="display: flex; justify-content: center; gap: 40px; margin-top: 15px; font-size: 1.2em;">
+        <div>משחקים כרגע: <span id="playingNowCounter">0</span></div>
+        <div>פעילים: <span id="activeCounter">0</span></div>
+        <div>לא פעילים: <span id="inactiveCounter">0</span></div>
+        <div>סה"כ: <span id="totalCounter">0</span></div>
+      </section>
+  </header>
+
+      <div class="branch-tabs">
+      <a href="../herz" class="branch-tab">הרצליה</a>
+      <a href="../rosh" class="branch-tab">ראש העין</a>
+      <a href="../rishon" class="branch-tab">ראשון לציון</a>
+    </div>
+<div>
+  <div class="tooltip-message" dir="rtl">
+    הודעה לעובדים - נא להעמיד את העכבר כאן כדי לקרוא
+  <span class="tooltip-text">
+    ברגע שמוסיפים לקוח חדש בטאב מסוים - זה אוטומטי מוסיף לפי הסניף שאתם עליו - אז זה סבבה. <br> 
+
+    אבל אם יש לקוח שכבר קיים (על כללי) לא לעשות לו פעולות כמו START או מוסיפים שעות או משהו: <br> 
+    אז קודם למחוק את הלקוח (אבל לזכור את השעות שלו) ואז להוסיף את הלקוח מחדש וזה יוסיף אותו לסניף הנכון (זה שאתם נמצאים עליו כרגע) <br> 
+    ורק אז אפשר לעשות פעולות שהסניף שרשום לו זה המתאים. <br> 
+    <br> 
+    בנוסף אחרי שהוספתם אותו לסניף המתאים, בבקשה למחוק אותו משאר הסניפים שהוא מופיע כ"כללי". תודה <br> 
+    טיפ: אפשר לעשות חיפוש ללקוח עם CTRL+F
+  </span>
+</div>
+
+<br>
+
+  <main>
+    <section id="addClientSection">
+      <form id="addClientForm">
+        <div class="floating-input">
+          <input type="text" id="clientName" placeholder=" " required>
+          <label for="clientName">שם מלא</label>
+        </div>
+        <div class="floating-input">
+          <input type="text" id="clientPhone" placeholder=" " required>
+          <label for="clientPhone">מספר פלאפון מלא</label>
+        </div>   
+        <div class="floating-input">
+          <input type="number" id="hours" placeholder=" " value="0" min="0" required>
+          <label for="hours">שעות</label>
+        </div>  
+        <div class="floating-input">
+          <input type="number" id="minutes" placeholder=" " value="0" min="0" max="59" required>
+          <label for="minutes">דקות</label>
+        </div>           
+        <select id="clientRole">
+          <option value="Main" selected>Main</option>
+          <option value="VIP">VIP</option>
+        </select>
+        <button type="submit">Add Client</button>
+      </form>
+    </section>
+
+    <hr>
+
+    <section class="filter-container">
+      <label for="filterStatus"><b>Show </b></label>
+      <select id="filterStatus" onchange="renderTable()">
+        <option value="all" selected>All</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>  
+    </section>
+
+    <section id="clientsSection">
+      <table id="clientsTable">
+        <thead>
+          <tr>
+            <th onclick="sortTable('role')">Role</th>
+            <th onclick="sortTable('name')">Name</th>
+            <th onclick="sortTable('phone')">Phone</th>
+            <th>Actions</th>
+            <th onclick="sortTable('remaining')">Timer</th>
+            <th>Add&nbsp;Time</th>
+            <th onclick="sortTable('buyDate')">Added&nbsp;date</th>
+            <th>Delete</th>
+            <th>Branch</th>
+          </tr>          
+        </thead>        
+        <tbody>
+          <!-- Dynamically filled -->
+        </tbody>
+      </table>
+    </section>
+
+  </main>
+
+  <script>
+  (function () {
+    function highlightCurrentBranch() {
+      // Detect which branch we’re on from the URL
+      const seg = (location.pathname.split('/').filter(Boolean).pop() || '').toLowerCase();
+      const key = ['herz', 'rosh', 'rishon'].find(k => seg.includes(k)) || null;
+
+      // Toggle "active" on the matching link
+      document.querySelectorAll('.branch-tabs .branch-tab').forEach(a => {
+        const path = new URL(a.href, location.href).pathname.toLowerCase();
+        const isMatch = key && (path.endsWith('/' + key) || path.endsWith('/' + key + '/'));
+        a.classList.toggle('active', !!isMatch);
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', highlightCurrentBranch);
+    } else {
+      highlightCurrentBranch();
+    }
+  })();
+  </script>
+  <style id="auth-hide">body{visibility:hidden}</style>
+  <script src="../auth-gate.js"></script>
+</body>
+</html>

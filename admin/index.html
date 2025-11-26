@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NOM-Gaming — Admin Dashboard</title>
+  <link rel="icon" href="nomicon.png" type="image/x-icon" />
+  <style>
+    :root{
+      --bg:#f4f6f9; --card:#ffffff; --muted:#6b7280; --text:#111827;
+      --green:#22c55e; --red:#ef4444; --brand:#333; --brand-2:#6b6b6b;
+      --border:#e5e7eb; --shadow:0 6px 24px rgba(0,0,0,.08);
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0; padding:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial; background:var(--bg); color:var(--text)}
+    header{background:linear-gradient(135deg,var(--brand),var(--brand-2)); color:#000000; padding:22px 16px; box-shadow:var(--shadow)}
+    header h1{margin:0; font-size:22px; font-weight:700; letter-spacing:.3px}
+    .wrap{max-width:1200px; margin:0 auto; padding:18px}
+
+    /* counters */
+    .counters{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:14px}
+    .counter{background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); padding:14px; text-align:center}
+    .counter .label{color:var(--muted); font-size:13px}
+    .counter .value{font-size:22px; font-weight:800; margin-top:6px}
+    .last-updated{color:var(--muted); font-size:12px; margin-top:8px; text-align:center}
+
+    /* controls */
+    .controls{display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; margin:18px 0}
+    .tabs{display:flex; gap:8px; flex-wrap:wrap}
+    .tab{border:1px solid var(--border); background:#fff; padding:9px 12px; border-radius:10px; cursor:pointer; font-size:14px}
+    .tab.active{background:var(--brand-2); color:#fff; border-color:transparent}
+    .searchbox{display:flex; gap:8px; align-items:center}
+    .searchbox input{padding:10px 12px; border:1px solid var(--border); border-radius:10px; min-width:240px; outline:none}
+    .pill{border:1px solid var(--border); background:#fff; padding:7px 10px; border-radius:999px; cursor:pointer; font-size:13px}
+    .pill.active{background:#111827; color:#fff; border-color:#111827}
+    .btn{border:none; background:#111827; color:#fff; padding:9px 12px; border-radius:10px; cursor:pointer}
+    .btn.secondary{background:#fff; color:#111827; border:1px solid var(--border)}
+
+    /* table */
+    .table-wrap{background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); overflow:hidden}
+    table{width:100%; border-collapse:collapse}
+    thead th{background:#f8fafc; font-weight:700; font-size:13px; color:#374151; padding:10px; border-bottom:1px solid var(--border); cursor:pointer; user-select:none}
+    tbody td{padding:10px; border-bottom:1px solid var(--border); font-size:14px; text-align:center}
+    tbody tr.active-row{background:rgba(34,197,94,.08)}
+    tbody tr.paused-row{background:rgba(239,68,68,.06)}
+    .status{display:inline-block; padding:5px 10px; border-radius:999px; color:#fff; font-size:12px; font-weight:700}
+    .status.active{background:var(--green)}
+    .status.paused{background:var(--red)}
+    .muted{color:var(--muted)}
+    .empty{padding:30px; text-align:center; color:var(--muted)}
+
+    @media (max-width:900px){
+      .counters{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .searchbox input{min-width:180px}
+      thead{display:none}
+      tbody td{display:block; text-align:right}
+      tbody tr{display:grid; grid-template-columns:1fr 1fr; gap:6px; border-bottom:1px solid var(--border); padding:12px}
+      tbody td::before{content:attr(data-label); font-size:12px; color:var(--muted); display:block}
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>לוח ניהול — NOM Gaming</h1>
+    <div class="counters" id="counters">
+      <div class="counter"><div class="label">משחקים כרגע</div><div class="value" id="playingNowCounter">0</div></div>
+      <div class="counter"><div class="label">פעילים</div><div class="value" id="activeCounter">0</div></div>
+      <div class="counter"><div class="label">לא פעילים</div><div class="value" id="inactiveCounter">0</div></div>
+      <div class="counter"><div class="label">סה״כ</div><div class="value" id="totalCounter">0</div></div>
+    </div>
+    <div class="last-updated" id="lastUpdated">—</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="controls">
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-branch="ALL">כל הסניפים</button>
+      <button class="tab" data-branch="ראשון לציון">ראשון לציון</button>
+      <button class="tab" data-branch="הרצליה">הרצליה</button>
+      <button class="tab" data-branch="ראש העין">ראש העין</button>
+    </div>
+    <div class="searchbox">
+      <input type="text" id="searchInput" placeholder="חיפוש לפי שם או פלאפון (חלקי)" />
+      <button class="pill active" data-filter="all">הכל</button>
+      <button class="pill" data-filter="active">פעילים</button>
+      <button class="pill" data-filter="paused">מושהים</button>
+      <button class="btn secondary" id="exportBtn">ייצוא CSV</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="clientsTable">
+      <thead>
+        <tr>
+          <th data-sort="branch">סניף</th>
+          <th data-sort="role">תפקיד</th>
+          <th data-sort="name">שם</th>
+          <th data-sort="phone">פלאפון</th>
+          <th>סטטוס</th>
+          <th data-sort="remaining">זמן נותר</th>
+          <th data-sort="buyDate">תאריך רכישה</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="7" class="empty">טוען נתונים…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ====== CONFIG ======
+const BACKEND_URL = 'https://arena-be.onrender.com'; // live backend
+// const BACKEND_URL = 'http://localhost:3000'; // local
+const BRANCHES = ["הרצליה","ראש העין","ראשון לציון"];
+const AUTH_CACHE_KEY = 'adminAuthUntil'; // stores a timestamp ms when auth expires
+const AUTH_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+// ====== STATE ======
+let allClients = [];    // raw merged data from all branches
+let viewBranch = 'ALL'; // current tab
+let searchTerm = '';    // input value
+let filterMode = 'all'; // all | active | paused
+let sortKey = 'branch'; // default sort
+let sortAsc = true;     // sort direction
+
+// ====== AUTH ======
+async function ensurePassword() {
+  const now = Date.now();
+  const until = Number(localStorage.getItem(AUTH_CACHE_KEY) || 0);
+  if (until && until > now) return true;
+
+  while (true) {
+    const password = prompt('סיסמה נדרשת לכניסה ללוח הניהול:');
+    if (!password) return false;
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/check-password`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ password })
+      });
+      const json = await res.json();
+      if (json.valid) {
+        localStorage.setItem(AUTH_CACHE_KEY, String(now + AUTH_TTL_MS));
+        return true;
+      } else {
+        alert('סיסמה שגויה, נסו שוב.');
+      }
+    } catch (e) {
+      console.error('Auth error', e);
+      alert('שגיאה בבדיקת הסיסמה.');
+      return false;
+    }
+  }
+}
+
+// ====== UTIL ======
+function formatTime(seconds){
+  const h = Math.floor(seconds/3600).toString().padStart(2,'0');
+  const m = Math.floor((seconds%3600)/60).toString().padStart(2,'0');
+  const s = (seconds%60).toString().padStart(2,'0');
+  return `${h}:${m}:${s}`;
+}
+
+function remainingSeconds(c){
+  if (c.paused || !c.startTimestamp)
+    return Math.max(0, c.totalSeconds - c.elapsedSeconds);
+  const start = new Date(c.startTimestamp).getTime();
+  const now = Date.now();
+  const extra = Math.floor((now - start)/1000);
+  return Math.max(0, c.totalSeconds - (c.elapsedSeconds + extra));
+}
+
+function normalize(str){ return (str || '').toString().trim().toLowerCase(); }
+
+// ====== DATA FETCH ======
+async function fetchAll(){
+  const reqs = BRANCHES.map(b =>
+    fetch(`${BACKEND_URL}/clients?branch=${encodeURIComponent(b)}`)
+      .then(r=>r.json())
+      .then(list => list.map(c => ({...c, branch: c.branch || b})))
+      .catch(()=>[])
+  );
+  const arrays = await Promise.all(reqs);
+  allClients = arrays.flat();
+  updateCountersFrom(listForBranch(viewBranch));
+  document.getElementById('lastUpdated').textContent =
+    'עדכון אחרון: ' + new Date().toLocaleTimeString('he-IL', { hour12:false });
+  render();
+}
+
+function listForBranch(branch){
+  return branch === 'ALL' ? allClients : allClients.filter(c => c.branch === branch);
+}
+
+function updateCountersFrom(list){
+  let total=list.length, active=0, inactive=0, playing=0;
+  list.forEach(c=>{
+    const rem = remainingSeconds(c);
+    if (rem > 5) active++; else inactive++;
+    if (!c.paused) playing++;
+  });
+  document.getElementById('totalCounter').textContent = total;
+  document.getElementById('activeCounter').textContent = active;
+  document.getElementById('inactiveCounter').textContent = inactive;
+  document.getElementById('playingNowCounter').textContent = playing;
+}
+
+// ====== VIEW FILTER/SORT ======
+function currentView(){
+  let list = allClients.slice();
+
+  // branch
+  if (viewBranch !== 'ALL'){
+    list = list.filter(c => c.branch === viewBranch);
+  }
+
+  // search (name OR phone, partial)
+  const q = normalize(searchTerm);
+  if (q){
+    const digitsOnly = /^\d+$/.test(q);
+    if (digitsOnly){
+      // phone contains
+      list = list.filter(c => (c.phone || '').includes(q));
+    } else {
+      // name contains (case-insensitive, Hebrew OK)
+      list = list.filter(c => normalize(c.name).includes(q));
+    }
+  }
+
+  // quick filter
+  if (filterMode === 'active'){
+    list = list.filter(c => !c.paused);
+  } else if (filterMode === 'paused'){
+    list = list.filter(c => c.paused);
+  }
+
+  // sort
+  list.sort((a,b)=>{
+    let av, bv;
+    if (sortKey === 'remaining'){ av = remainingSeconds(a); bv = remainingSeconds(b); }
+    else { av = (a[sortKey] ?? '').toString().toLowerCase(); bv = (b[sortKey] ?? '').toString().toLowerCase(); }
+
+    if (av < bv) return sortAsc ? -1 : 1;
+    if (av > bv) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  return list;
+}
+
+// ====== RENDER ======
+function render(){
+  const tbody = document.getElementById('tbody');
+  const rows = currentView();
+
+  if (!rows.length){
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">אין נתונים להצגה</td></tr>`;
+    return;
+  }
+
+  const isMobile = window.matchMedia('(max-width:900px)').matches;
+  tbody.innerHTML = rows.map(c=>{
+    const rem = remainingSeconds(c);
+    const status = c.paused ? 'paused' : 'active';
+    const rowCls = c.paused ? 'paused-row' : 'active-row';
+    const cells = `
+      <td data-label="סניף">${c.branch || ''}</td>
+      <td data-label="תפקיד">${c.role || ''}</td>
+      <td data-label="שם">${c.name || ''}</td>
+      <td data-label="פלאפון">${c.phone || ''}</td>
+      <td data-label="סטטוס"><span class="status ${status}">${c.paused?'מושהה':'פעיל'}</span></td>
+      <td data-label="זמן נותר" id="rem-${c.id}">${formatTime(rem)}</td>
+      <td data-label="תאריך רכישה" class="muted">${c.buyDate || ''}</td>
+    `;
+    return `<tr class="${rowCls}">${cells}</tr>`;
+  }).join('');
+  updateCountersFrom(listForBranch(viewBranch));
+}
+
+// live countdown tick
+setInterval(()=>{
+  const rows = currentView();
+  rows.forEach(c=>{
+    if (!c.paused){
+      const el = document.getElementById(`rem-${c.id}`);
+      if (el) el.textContent = formatTime(remainingSeconds(c));
+    }
+  });
+}, 1000);
+
+// ====== EVENTS ======
+document.getElementById('tabs').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.tab');
+  if (!btn) return;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  viewBranch = btn.dataset.branch;
+  updateCountersFrom(listForBranch(viewBranch));
+  render();
+});
+
+document.querySelectorAll('.pill').forEach(p=>{
+  p.addEventListener('click', ()=>{
+    document.querySelectorAll('.pill').forEach(x=>x.classList.remove('active'));
+    p.classList.add('active');
+    filterMode = p.dataset.filter;
+    render();
+  });
+});
+
+// debounce search
+let searchTimer = null;
+document.getElementById('searchInput').addEventListener('input', (e)=>{
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(()=>{
+    searchTerm = e.target.value;
+    render();
+  }, 200);
+});
+
+// sortable headers
+document.querySelectorAll('thead th[data-sort]').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const key = th.getAttribute('data-sort');
+    if (sortKey === key) sortAsc = !sortAsc;
+    else { sortKey = key; sortAsc = true; }
+    render();
+  });
+});
+
+// CSV export of current view
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const rows = currentView();
+  if (!rows.length){ alert('אין מה לייצא'); return; }
+  const header = ['branch','role','name','phone','status','remaining','buyDate'];
+  const lines = [header.join(',')];
+  rows.forEach(c=>{
+    const remaining = formatTime(remainingSeconds(c));
+    const status = c.paused ? 'paused' : 'active';
+    const row = [
+      (c.branch||''),
+      (c.role||''),
+      (c.name||''),
+      (c.phone||''),
+      status,
+      remaining,
+      (c.buyDate||'')
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`);
+    lines.push(row.join(','));
+  });
+  const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `nom_admin_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+});
+
+// ====== BOOT ======
+(async function init(){
+  const ok = await ensurePassword();
+  if (!ok){ document.body.innerHTML=''; return; }
+  await fetchAll();
+  setInterval(fetchAll, 30000); // refresh data & counters every 30s
+})();
+</script>
+</body>
+</html>
